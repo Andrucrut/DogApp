@@ -1,0 +1,35 @@
+# Виртуальные окружения (восстанавливаются из requirements.txt; не коммитить)
+.venv/
+venv/
+**/venv/
+**/.venv/
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Секреты (шаблоны env.sample в сервисах коммитятся)
+.env
+**/.env
+
+# ОС и редакторы
+.DS_Store
+Thumbs.db
+.idea/
+**/.idea/
+
+# Логи
+*.log

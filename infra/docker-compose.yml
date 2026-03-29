@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dogapp
+      POSTGRES_PASSWORD: dogapp
+      POSTGRES_DB: dogapp
+    ports:
+      - "55432:5432"
+    volumes:
+      - dogapp_pgdata:/var/lib/postgresql/data
+      - ./init-databases.sql:/docker-entrypoint-initdb.d/01-databases.sql
+
+volumes:
+  dogapp_pgdata:
