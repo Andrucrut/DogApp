@@ -34,3 +34,34 @@ class WalkSessionRead(BaseModel):
     started_at: datetime
     ended_at: datetime | None
     created_at: datetime
+
+
+class WalkRouteSummary(BaseModel):
+    points_count: int
+    total_points: int
+    returned_points: int
+    offset: int
+    limit: int
+    has_more: bool
+    total_distance_m: float
+    started_at: datetime | None
+    ended_at: datetime | None
+    duration_seconds: int | None
+    min_latitude: float | None
+    max_latitude: float | None
+    min_longitude: float | None
+    max_longitude: float | None
+
+
+class WalkRouteResponse(BaseModel):
+    session: WalkSessionRead
+    points: list[TrackPointRead]
+    summary: WalkRouteSummary
+
+
+class TrackPointPage(BaseModel):
+    items: list[TrackPointRead]
+    total: int
+    offset: int
+    limit: int
+    has_more: bool

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import field_validator, model_validator
 
+from app.core.geo import is_spb_point, is_supported_city, is_supported_country
 from app.models.booking import BookingStatus
 from app.schemas.base import BaseModel
 
@@ -68,6 +69,15 @@ class BookingCreate(BaseModel):
             raise ValueError("city_required")
         if not self.address_street.strip():
             raise ValueError("street_required")
+        if not is_supported_country(self.address_country):
+            raise ValueError("unsupported_country")
+        if not is_supported_city(self.address_city):
+            raise ValueError("unsupported_city")
+        if (self.meeting_latitude is None) != (self.meeting_longitude is None):
+            raise ValueError("meeting_coordinates_incomplete")
+        if self.meeting_latitude is not None and self.meeting_longitude is not None:
+            if not is_spb_point(self.meeting_latitude, self.meeting_longitude):
+                raise ValueError("point_outside_supported_city")
         return self
 
 

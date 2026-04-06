@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_internal
 from app.db.session import get_db
 from app.db_crud.booking_crud import crud_booking
+from app.db_crud.chat_crud import crud_conversation
 from app.db_crud.walker_crud import crud_walker
 from app.models.booking import BookingStatus
 from app.schemas.base import BaseModel
@@ -38,6 +39,12 @@ class BookingReviewContextResponse(BaseModel):
 
 class ApplyReviewRatingBody(BaseModel):
     rating: int
+
+
+class ConversationActorsResponse(BaseModel):
+    owner_id: UUID
+    walker_user_id: UUID
+    booking_id: UUID
 
 
 @router.get("/bookings/{booking_id}/actors", response_model=BookingActorsResponse)
@@ -119,3 +126,18 @@ async def apply_review_rating(
         {"rating": new_avg, "reviews_count": new_n},
     )
     return {"rating": new_avg, "reviews_count": new_n}
+
+
+@router.get("/conversations/{conversation_id}/actors", response_model=ConversationActorsResponse)
+async def conversation_actors(
+    conversation_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> ConversationActorsResponse:
+    conversation = await crud_conversation.get(db, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
+    return ConversationActorsResponse(
+        owner_id=conversation.owner_id,
+        walker_user_id=conversation.walker_user_id,
+        booking_id=conversation.booking_id,
+    )

@@ -28,3 +28,4 @@ class Walker(Base):
 
     schedules = relationship("Schedule", back_populates="walker")
     bookings = relationship("Booking", back_populates="walker")
+    applications = relationship("BookingApplication", back_populates="walker")

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id
+from app.core.geo import is_spb_point
 from app.db.session import get_db
 from app.db_crud.walker_crud import crud_walker
 from app.schemas.walker import WalkerCreate, WalkerRead, WalkerUpdate
@@ -35,6 +36,13 @@ async def search_walkers(
     limit: int = Query(20, le=100),
     offset: int = 0,
 ) -> list[WalkerRead]:
+    if (lat is None) != (lng is None):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="search_point_incomplete")
+    if lat is not None and lng is not None and not is_spb_point(lat, lng):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="point_outside_supported_city",
+        )
     walkers = await crud_walker.search(
         db,
         is_available=only_available,

@@ -46,5 +46,7 @@ class Booking(Base):
 
     walker = relationship("Walker", back_populates="bookings")
     dog = relationship("Dog", back_populates="bookings")
+    applications = relationship("BookingApplication", back_populates="booking")
+    conversation = relationship("Conversation", back_populates="booking", uselist=False)
 
 

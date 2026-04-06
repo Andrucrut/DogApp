@@ -41,7 +41,9 @@ async def register(schema: CreateUserSchema, db: AsyncSession = Depends(get_db))
 
     role = await _get_or_create_role(db, schema.role_key)
 
-    data = schema.model_dump(exclude={"consent_personal_data", "consent_privacy_policy"})
+    data = schema.model_dump(
+        exclude={"consent_personal_data", "consent_privacy_policy", "role_key"}
+    )
     try:
         data["hashed_password"] = hash_password(data.pop("password") if "password" in data else "")
     except ValueError:

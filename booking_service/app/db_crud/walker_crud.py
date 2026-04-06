@@ -9,6 +9,17 @@ from app.models.walker import Walker
 
 class CRUDWalker(CRUDBase[Walker]):
 
+    async def get_by_ids(
+        self, db: AsyncSession, ids: list[UUID]
+    ) -> dict[UUID, Walker]:
+        if not ids:
+            return {}
+        result = await db.execute(
+            select(Walker).where(Walker.id.in_(ids), Walker.deleted_at == None)
+        )
+        rows = list(result.scalars().all())
+        return {w.id: w for w in rows}
+
     async def get_by_user_id(self, db: AsyncSession, user_id: UUID) -> Walker | None:
         result = await db.execute(
             select(Walker)

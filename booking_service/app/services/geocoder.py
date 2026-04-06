@@ -4,6 +4,7 @@ from urllib.parse import urlencode
 
 import httpx
 
+from app.core.geo import is_spb_point, is_supported_city, is_supported_country
 from app.core.config import settings
 
 
@@ -14,6 +15,8 @@ async def suggest_address(
     query: str,
     limit: int = 7,
 ) -> list[dict]:
+    if not is_supported_country(country) or not is_supported_city(city):
+        return []
     provider = (settings.GEOCODER_PROVIDER or "nominatim").lower()
     if provider == "yandex":
         return await _suggest_yandex(country=country, city=city, query=query, limit=limit)
@@ -27,6 +30,9 @@ async def _suggest_nominatim(*, country: str, city: str, query: str, limit: int)
         "addressdetails": 1,
         "limit": str(max(1, min(limit, 15))),
         "q": q,
+        "countrycodes": "ru",
+        "viewbox": "29.50,60.10,30.75,59.75",
+        "bounded": "1",
     }
     url = f"https://nominatim.openstreetmap.org/search?{urlencode(params)}"
     headers = {"User-Agent": "DogApp/1.0 (booking_service)"}
@@ -37,6 +43,10 @@ async def _suggest_nominatim(*, country: str, city: str, query: str, limit: int)
     out: list[dict] = []
     for item in resp.json():
         addr = item.get("address") or {}
+        lat = float(item["lat"]) if item.get("lat") else None
+        lon = float(item["lon"]) if item.get("lon") else None
+        if lat is not None and lon is not None and not is_spb_point(lat, lon):
+            continue
         out.append(
             {
                 "label": item.get("display_name"),
@@ -44,8 +54,8 @@ async def _suggest_nominatim(*, country: str, city: str, query: str, limit: int)
                 "city": addr.get("city") or addr.get("town") or addr.get("village"),
                 "street": addr.get("road") or addr.get("pedestrian") or addr.get("footway"),
                 "house": addr.get("house_number"),
-                "latitude": float(item["lat"]) if item.get("lat") else None,
-                "longitude": float(item["lon"]) if item.get("lon") else None,
+                "latitude": lat,
+                "longitude": lon,
             }
         )
     return out
@@ -60,6 +70,8 @@ async def _suggest_yandex(*, country: str, city: str, query: str, limit: int) ->
         "format": "json",
         "geocode": geocode,
         "results": str(max(1, min(limit, 10))),
+        "bbox": "29.50,59.75~30.75,60.10",
+        "rspn": "1",
     }
     url = f"https://geocode-maps.yandex.ru/1.x/?{urlencode(params)}"
     async with httpx.AsyncClient() as client:
@@ -86,6 +98,8 @@ async def _suggest_yandex(*, country: str, city: str, query: str, limit: int) ->
                 lat = float(lat_s)
             except ValueError:
                 lon = lat = None
+        if lat is not None and lon is not None and not is_spb_point(lat, lon):
+            continue
         out.append(
             {
                 "label": text,

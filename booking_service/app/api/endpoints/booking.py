@@ -119,49 +119,10 @@ async def accept_booking(
     db: AsyncSession = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ) -> BookingRead:
-    walker = await crud_walker.get_by_user_id(db, user_id)
-    if not walker:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="not_a_walker",
-        )
-    booking = await crud_booking.get(db, booking_id)
-    if not booking:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
-    if booking.owner_id == walker.user_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="cannot_accept_own_booking",
-        )
-    if booking.walker_id is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="already_assigned",
-        )
-    if booking.status != BookingStatus.PENDING:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="invalid_status",
-        )
-
-    hours = Decimal(booking.duration_minutes) / Decimal(60)
-    price = (walker.price_per_hour * hours).quantize(Decimal("0.01"))
-    updated = await crud_booking.update(
-        db,
-        booking,
-        {"walker_id": walker.id, "price": price},
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="deprecated_use_applications_choose",
     )
-    await send_notifications(
-        [
-            (
-                booking.owner_id,
-                "Выгульщик откликнулся",
-                "На вашу заявку откликнулся выгульщик — откройте бронирование в приложении.",
-                {"booking_id": str(booking.id), "event": "booking_accepted"},
-            ),
-        ]
-    )
-    return _booking_read(updated)
 
 
 @router.get("/{booking_id}", response_model=BookingRead)

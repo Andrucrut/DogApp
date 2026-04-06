@@ -1,18 +1,23 @@
 from datetime import datetime, timezone
+from math import asin, cos, radians, sin, sqrt
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id
+from app.core.geo import is_spb_point
 from app.db.session import get_db
 from app.db_crud.track_point_crud import crud_track_point
 from app.db_crud.walk_session_crud import crud_walk_session
 from app.models.walk_session import WalkSessionStatus
 from app.realtime.broadcast import walk_hub
 from app.schemas.walk import (
+    TrackPointPage,
     TrackPointIn,
     TrackPointRead,
+    WalkRouteResponse,
+    WalkRouteSummary,
     WalkSessionRead,
     WalkSessionStart,
 )
@@ -25,6 +30,14 @@ _ALLOWED_BOOKING_STATUS = frozenset({"CONFIRMED", "IN_PROGRESS"})
 
 def _can_view_session(session, user_id: UUID) -> bool:
     return user_id in (session.owner_id, session.walker_user_id)
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371000.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return 2 * r * asin(sqrt(a))
 
 
 @router.post("/start", response_model=WalkSessionRead, status_code=status.HTTP_201_CREATED)
@@ -89,6 +102,22 @@ async def get_session_by_booking(
     return WalkSessionRead.model_validate(session)
 
 
+@router.get("/by-booking/{booking_id}/route", response_model=WalkRouteResponse | None)
+async def get_route_by_booking(
+    booking_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+    limit: int = Query(10000, ge=1, le=20000),
+    offset: int = Query(0, ge=0),
+) -> WalkRouteResponse | None:
+    session = await crud_walk_session.get_by_booking_id(db, booking_id)
+    if not session:
+        return None
+    if not _can_view_session(session, user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+    return await _build_route_response(db, session, limit=limit, offset=offset)
+
+
 @router.get("/{session_id}", response_model=WalkSessionRead)
 async def get_session(
     session_id: UUID,
@@ -103,20 +132,105 @@ async def get_session(
     return WalkSessionRead.model_validate(session)
 
 
-@router.get("/{session_id}/points", response_model=list[TrackPointRead])
+@router.get("/{session_id}/points", response_model=TrackPointPage)
 async def list_points(
     session_id: UUID,
     db: AsyncSession = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
-    limit: int = 500,
-) -> list[TrackPointRead]:
+    limit: int = Query(2000, ge=1, le=10000),
+    offset: int = Query(0, ge=0),
+) -> TrackPointPage:
     session = await crud_walk_session.get(db, session_id)
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
     if not _can_view_session(session, user_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
-    pts = await crud_track_point.list_for_session(db, session_id, limit=limit)
-    return [TrackPointRead.model_validate(p) for p in pts]
+    pts = await crud_track_point.list_for_session(
+        db, session_id, limit=limit, offset=offset
+    )
+    total = await crud_track_point.count_for_session(db, session_id)
+    returned = len(pts)
+    has_more = (offset + returned) < total
+    return TrackPointPage(
+        items=[TrackPointRead.model_validate(p) for p in pts],
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=has_more,
+    )
+
+
+@router.get("/{session_id}/route", response_model=WalkRouteResponse)
+async def get_route(
+    session_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+    limit: int = Query(10000, ge=1, le=20000),
+    offset: int = Query(0, ge=0),
+) -> WalkRouteResponse:
+    session = await crud_walk_session.get(db, session_id)
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
+    if not _can_view_session(session, user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+    return await _build_route_response(db, session, limit=limit, offset=offset)
+
+
+async def _build_route_response(
+    db: AsyncSession,
+    session,
+    *,
+    limit: int,
+    offset: int,
+) -> WalkRouteResponse:
+    points = await crud_track_point.list_for_session(
+        db, session.id, limit=limit, offset=offset
+    )
+    total_points = await crud_track_point.count_for_session(db, session.id)
+    returned_points = len(points)
+    has_more = (offset + returned_points) < total_points
+    total = 0.0
+    min_lat = max_lat = min_lon = max_lon = None
+    prev = None
+    for p in points:
+        if min_lat is None:
+            min_lat = max_lat = p.latitude
+            min_lon = max_lon = p.longitude
+        else:
+            min_lat = min(min_lat, p.latitude)
+            max_lat = max(max_lat, p.latitude)
+            min_lon = min(min_lon, p.longitude)
+            max_lon = max(max_lon, p.longitude)
+        if prev is not None:
+            total += _haversine_m(prev.latitude, prev.longitude, p.latitude, p.longitude)
+        prev = p
+
+    duration_seconds = None
+    started_at = points[0].recorded_at if points else session.started_at
+    ended_at = points[-1].recorded_at if points else session.ended_at
+    if started_at and ended_at:
+        duration_seconds = max(0, int((ended_at - started_at).total_seconds()))
+
+    return WalkRouteResponse(
+        session=WalkSessionRead.model_validate(session),
+        points=[TrackPointRead.model_validate(p) for p in points],
+        summary=WalkRouteSummary(
+            points_count=total_points,
+            total_points=total_points,
+            returned_points=returned_points,
+            offset=offset,
+            limit=limit,
+            has_more=has_more,
+            total_distance_m=round(total, 2),
+            started_at=started_at,
+            ended_at=ended_at,
+            duration_seconds=duration_seconds,
+            min_latitude=min_lat,
+            max_latitude=max_lat,
+            min_longitude=min_lon,
+            max_longitude=max_lon,
+        ),
+    )
 
 
 @router.post("/{session_id}/points", response_model=TrackPointRead)
@@ -133,6 +247,11 @@ async def add_point(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
     if session.status != WalkSessionStatus.LIVE:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="session_not_live")
+    if not is_spb_point(body.latitude, body.longitude):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="point_outside_supported_city",
+        )
 
     recorded_at = body.recorded_at or datetime.now(timezone.utc)
     point = await crud_track_point.create(

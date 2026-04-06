@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 
+from app.core.geo import is_supported_city, is_supported_country
 from app.schemas.address import AddressSuggestResponse, AddressSuggestion
 from app.services.geocoder import suggest_address
 
@@ -13,6 +14,8 @@ async def suggest(
     q: str = Query(..., min_length=2),
     limit: int = Query(7, ge=1, le=15),
 ) -> AddressSuggestResponse:
+    if not is_supported_country(country) or not is_supported_city(city):
+        return AddressSuggestResponse(items=[])
     items = await suggest_address(country=country, city=city, query=q, limit=limit)
     return AddressSuggestResponse(items=[AddressSuggestion(**i) for i in items])
 

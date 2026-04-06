@@ -1,7 +1,11 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Self
 from uuid import UUID
 
+from pydantic import model_validator
+
+from app.core.geo import is_spb_point
 from app.schemas.base import BaseModel
 
 
@@ -29,6 +33,15 @@ class WalkerCreate(BaseModel):
     longitude: float | None = None
     service_radius_km: float = 5.0
 
+    @model_validator(mode="after")
+    def validate_location(self) -> Self:
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("walker_coordinates_incomplete")
+        if self.latitude is not None and self.longitude is not None:
+            if not is_spb_point(self.latitude, self.longitude):
+                raise ValueError("walker_point_outside_supported_city")
+        return self
+
 
 class WalkerUpdate(BaseModel):
     bio: str | None = None
@@ -38,3 +51,12 @@ class WalkerUpdate(BaseModel):
     longitude: float | None = None
     service_radius_km: float | None = None
     is_available: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_location(self) -> Self:
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("walker_coordinates_incomplete")
+        if self.latitude is not None and self.longitude is not None:
+            if not is_spb_point(self.latitude, self.longitude):
+                raise ValueError("walker_point_outside_supported_city")
+        return self

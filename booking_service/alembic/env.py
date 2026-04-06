@@ -6,6 +6,8 @@ from sqlalchemy import engine_from_config, pool
 from app.core.config import settings
 from app.models.base import Base
 import app.models.booking
+import app.models.application
+import app.models.chat
 import app.models.dog
 import app.models.walker
 import app.models.schedule

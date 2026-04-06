@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,6 +8,7 @@ from app.db_crud.blacklist_crud import crud_blacklist
 from app.db_crud.user_crud import crud_user
 from app.models.base import UserStatus
 from app.models.user import User
+from app.core.config import settings
 
 bearer_scheme = HTTPBearer()
 
@@ -39,6 +40,13 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="user_deleted")
 
     return user
+
+
+async def require_internal(
+    x_internal_token: str | None = Header(None, alias="X-Internal-Token"),
+) -> None:
+    if not x_internal_token or x_internal_token != settings.INTERNAL_API_TOKEN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
 
 
 async def get_current_superuser(
