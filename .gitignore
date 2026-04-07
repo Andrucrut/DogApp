@@ -31,5 +31,8 @@ Thumbs.db
 .idea/
 **/.idea/
 
+# Локальный запуск (scripts/start-all.sh)
+.run/
+
 # Логи
 *.log

@@ -6,6 +6,7 @@ from sqlalchemy import engine_from_config, pool
 from app.core.config import settings
 from app.models.base import Base
 import app.models.payment
+import app.models.wallet
 
 config = context.config
 if config.config_file_name is not None:

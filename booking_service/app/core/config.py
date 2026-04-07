@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     INTERNAL_API_TOKEN: str = "change-me-internal"
     ACCOUNT_SERVICE_URL: str | None = None
     NOTIFICATION_SERVICE_URL: str | None = None
+    PAYMENT_SERVICE_URL: str = "http://127.0.0.1:8004"
     GEOCODER_PROVIDER: str = "nominatim"  # nominatim|yandex (optional)
     YANDEX_GEOCODER_API_KEY: str | None = None
     HTTP_TIMEOUT_SECONDS: float = 5.0

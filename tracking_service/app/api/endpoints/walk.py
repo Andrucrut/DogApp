@@ -28,6 +28,14 @@ router = APIRouter(prefix="/walk-sessions", tags=["walk-sessions"])
 _ALLOWED_BOOKING_STATUS = frozenset({"CONFIRMED", "IN_PROGRESS"})
 
 
+def _norm_booking_status(raw: object) -> str:
+    """Enum/строка из booking internal API → верхний регистр без префикса."""
+    s = str(raw).strip()
+    if "." in s:
+        s = s.rsplit(".", 1)[-1]
+    return s.upper()
+
+
 def _can_view_session(session, user_id: UUID) -> bool:
     return user_id in (session.owner_id, session.walker_user_id)
 
@@ -59,7 +67,7 @@ async def start_walk_session(
         )
     if user_id != info.walker_user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
-    if info.status not in _ALLOWED_BOOKING_STATUS:
+    if _norm_booking_status(info.status) not in _ALLOWED_BOOKING_STATUS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="invalid_booking_status",

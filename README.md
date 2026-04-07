@@ -50,3 +50,9 @@ cd gateway_service && ../.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 80
 | gateway    | 8080 |
 
 WebSocket трекинга подключать к **tracking** напрямую (не через gateway).
+
+## После обновления (деплой / локально)
+
+1. Применить миграции **`payment_service`** и **`booking_service`**: из корня с активным `.venv` выполнить `alembic upgrade head` в каждом из этих каталогов (или `./scripts/start-all.sh --migrate-only`).
+2. В **`booking_service/.env`** задать URL платежного сервиса, например `PAYMENT_SERVICE_URL=http://127.0.0.1:8004` (в проде — реальный адрес **payment**).
+3. Пользователям после выката **перелогиниться** (или обновить сессию через refresh): в access-токене должен быть claim **`role_key`** (`owner` / `walker`). Старые токены без `role_key` при операциях выгульщика (например вывод средств в **payment**) дадут ответ **`walker_only`**.

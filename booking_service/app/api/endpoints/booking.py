@@ -16,6 +16,7 @@ from app.services.outbound import (
     schedule_walk_reminder,
     send_notifications,
 )
+from app.services.payment_client import post_wallet_settlement
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
 
@@ -146,6 +147,62 @@ async def get_booking(
     return _booking_read(booking)
 
 
+@router.post("/{booking_id}/owner-settle", response_model=BookingRead)
+async def owner_settle_booking(
+    booking_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+) -> BookingRead:
+    booking = await crud_booking.get(db, booking_id)
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
+    if booking.owner_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+    if booking.status == BookingStatus.COMPLETED:
+        return _booking_read(booking)
+    if booking.status != BookingStatus.AWAITING_OWNER_PAYMENT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid_status",
+        )
+
+    ok, err = await post_wallet_settlement(booking_id)
+    if not ok:
+        if err == "insufficient_balance":
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="insufficient_balance",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=err or "payment_failed",
+        )
+
+    updated = await crud_booking.update(db, booking, {"status": BookingStatus.COMPLETED})
+    walker = None
+    if updated.walker_id is not None:
+        walker = await crud_walker.get(db, updated.walker_id)
+    bid = str(updated.id)
+    if walker:
+        await send_notifications(
+            [
+                (
+                    updated.owner_id,
+                    "Заказ оплачен",
+                    "Спасибо! При желании оставьте отзыв о выгульщике.",
+                    {"booking_id": bid, "event": "walk_completed_owner"},
+                ),
+                (
+                    walker.user_id,
+                    "Оплата получена",
+                    "Средства зачислены на ваш баланс в приложении.",
+                    {"booking_id": bid, "event": "walk_completed_walker"},
+                ),
+            ]
+        )
+    return _booking_read(updated)
+
+
 @router.patch("/{booking_id}/status", response_model=BookingRead)
 async def update_booking_status(
     booking_id: UUID,
@@ -175,13 +232,14 @@ async def update_booking_status(
         allowed = booking.status == BookingStatus.PENDING
     elif new_status == BookingStatus.IN_PROGRESS and is_walker:
         allowed = booking.status == BookingStatus.CONFIRMED
-    elif new_status == BookingStatus.COMPLETED and is_walker:
+    elif new_status == BookingStatus.AWAITING_OWNER_PAYMENT and is_walker:
         allowed = booking.status == BookingStatus.IN_PROGRESS
     elif new_status == BookingStatus.CANCELLED and (is_owner or is_walker):
         allowed = booking.status in (
             BookingStatus.PENDING,
             BookingStatus.CONFIRMED,
             BookingStatus.IN_PROGRESS,
+            BookingStatus.AWAITING_OWNER_PAYMENT,
         )
 
     if not allowed:
@@ -224,20 +282,20 @@ async def update_booking_status(
                 ),
             ]
         )
-    elif new_status == BookingStatus.COMPLETED:
+    elif new_status == BookingStatus.AWAITING_OWNER_PAYMENT:
         await send_notifications(
             [
                 (
                     booking.owner_id,
-                    "Прогулка завершена",
-                    "Оплатите услугу и при желании оставьте отзыв.",
-                    {"booking_id": bid, "event": "walk_completed_owner"},
+                    "Питомец у вас",
+                    "Подтвердите получение и оплатите заказ в приложении.",
+                    {"booking_id": bid, "event": "awaiting_owner_payment"},
                 ),
                 (
                     walker.user_id,
-                    "Прогулка завершена",
-                    "Заказ отмечен как выполненный.",
-                    {"booking_id": bid, "event": "walk_completed_walker"},
+                    "Прогулка сдана",
+                    "Ожидаем оплату от владельца.",
+                    {"booking_id": bid, "event": "walker_handover_done"},
                 ),
             ]
         )

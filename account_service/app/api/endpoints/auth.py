@@ -1,6 +1,10 @@
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.api.deps import get_current_user
 from app.core.security import hash_password, create_access_token, create_refresh_token, verify_password, decode_token
@@ -53,7 +57,7 @@ async def register(schema: CreateUserSchema, db: AsyncSession = Depends(get_db))
         )
     data["role_id"] = role.id
     user = await crud_user.create(db, data)
-    access_token = create_access_token(str(user.id))
+    access_token = create_access_token(str(user.id), role.key)
     refresh_token = create_refresh_token(str(user.id))
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
@@ -67,7 +71,9 @@ async def login(schema: LoginRequest, db: AsyncSession = Depends(get_db)) -> Tok
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="user_blocked")
 
-    access_token = create_access_token(str(user.id))
+    await db.refresh(user, ["role"])
+    rk = user.role.key if user.role else None
+    access_token = create_access_token(str(user.id), rk)
     refresh_token = create_refresh_token(str(user.id))
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
@@ -80,8 +86,17 @@ async def refresh(schema: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
     await crud_blacklist.add(db, schema.refresh_token)
     user_id = payload.get("sub")
-    access_token = create_access_token(user_id)
-    refresh_token = create_refresh_token(user_id)
+    result = await db.execute(
+        select(User)
+        .options(joinedload(User.role))
+        .where(User.id == UUID(str(user_id)), User.deleted_at.is_(None))
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="user_not_found")
+    rk = user.role.key if user.role else None
+    access_token = create_access_token(str(user.id), rk)
+    refresh_token = create_refresh_token(str(user.id))
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
 

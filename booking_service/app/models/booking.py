@@ -15,6 +15,7 @@ class BookingStatus(StrEnum):
     PENDING = auto()
     CONFIRMED = auto()
     IN_PROGRESS = auto()
+    AWAITING_OWNER_PAYMENT = auto()
     COMPLETED = auto()
     CANCELLED = auto()
 

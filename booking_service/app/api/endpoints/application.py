@@ -164,12 +164,18 @@ async def list_applications(
     booking = await crud_booking.get(db, booking_id)
     if not booking:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
-    if booking.owner_id != user_id:
+    if booking.owner_id == user_id:
+        rows = await crud_booking_application.list_for_booking(db, booking_id, limit=limit, offset=offset)
+        conv = await crud_conversation.get_by_booking_id(db, booking_id)
+        conv_id = conv.id if conv else None
+        return await _to_application_reads(db, rows, conversation_id=conv_id)
+    walker = await crud_walker.get_by_user_id(db, user_id)
+    if not walker:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
-    rows = await crud_booking_application.list_for_booking(db, booking_id, limit=limit, offset=offset)
-    conv = await crud_conversation.get_by_booking_id(db, booking_id)
-    conv_id = conv.id if conv else None
-    return await _to_application_reads(db, rows, conversation_id=conv_id)
+    app = await crud_booking_application.get_for_booking_walker(db, booking_id, walker.id)
+    if not app:
+        return []
+    return await _to_application_reads(db, [app])
 
 
 @router.post("/choose", response_model=BookingApplicationRead)
