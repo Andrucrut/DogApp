@@ -10,6 +10,22 @@ from types import ModuleType
 
 ROOT_DIR = Path(__file__).resolve().parent
 
+
+def _ensure_asyncpg_database_url(url: str) -> str:
+    """postgres:// и postgresql:// без драйвера → SQLAlchemy тянет psycopg2; async-код ждёт asyncpg."""
+    u = url.strip()
+    if not u:
+        return u
+    scheme = u.split("://", 1)[0].lower()
+    if "asyncpg" in scheme:
+        return u
+    if u.startswith("postgres://"):
+        return "postgresql+asyncpg://" + u[len("postgres://") :]
+    if u.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + u[len("postgresql://") :]
+    return u
+
+
 SERVICE_DIRS: dict[str, Path] = {
     "account": ROOT_DIR / "account_service",
     "booking": ROOT_DIR / "booking_service",
@@ -93,7 +109,7 @@ def _service_env() -> dict[str, str]:
         "NOTIFICATION_SERVICE_URL": f"{base_url}/notification",
     }
     if database_url:
-        env["DATABASE_URL"] = database_url
+        env["DATABASE_URL"] = _ensure_asyncpg_database_url(database_url)
     return env
 
 
