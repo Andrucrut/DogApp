@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 """
-Создаёт для демо-владельца (demo.owner@example.com) двух собак и по 3 открытых
-бронирования (заявки на выгул) на каждую — в разных районах Санкт-Петербурга.
+Демо-данные для владельца и выгульщика.
 
-Требования: подняты account_service (8000) и booking_service (8001).
-Переменные окружения: ACCOUNT_URL, BOOKING_URL (опционально).
+1) Владелец (по умолчанию demo.owner@example.com): две собаки и по 3 открытых
+   бронирования на каждую — в разных районах Санкт-Петербурга.
+
+2) Выгульщик (по умолчанию demo.walker@example.com): регистрация с role_key
+   walker, профиль POST /walkers/me, отклики на первые N открытых заявок.
+
+Режим монолита (по умолчанию):
+  MONOLITH_URL=http://127.0.0.1:9000  — один хост, пути /account/api/v1 и /booking/api/v1.
+
+Режим микросервисов (если заданы оба URL):
+  ACCOUNT_URL=http://127.0.0.1:8000
+  BOOKING_URL=http://127.0.0.1:8001
 """
 from __future__ import annotations
 
@@ -16,11 +25,29 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 
-ACCOUNT_URL = os.environ.get("ACCOUNT_URL", "http://127.0.0.1:8000").rstrip("/")
-BOOKING_URL = os.environ.get("BOOKING_URL", "http://127.0.0.1:8001").rstrip("/")
+def _api_bases() -> tuple[str, str]:
+    legacy_a = os.environ.get("ACCOUNT_URL", "").strip().rstrip("/")
+    legacy_b = os.environ.get("BOOKING_URL", "").strip().rstrip("/")
+    if legacy_a and legacy_b:
+        return f"{legacy_a}/api/v1", f"{legacy_b}/api/v1"
+    mono = os.environ.get("MONOLITH_URL", "http://127.0.0.1:9000").strip().rstrip("/")
+    return f"{mono}/account/api/v1", f"{mono}/booking/api/v1"
 
-OWNER_EMAIL = "demo.owner@example.com"
-OWNER_PASSWORD = "DemoOwner1"
+
+ACCOUNT_API, BOOKING_API = _api_bases()
+
+OWNER_EMAIL = os.environ.get("SEED_OWNER_EMAIL", "demo.owner@example.com")
+OWNER_PASSWORD = os.environ.get("SEED_OWNER_PASSWORD", "DemoOwner1")
+OWNER_FIRST_NAME = os.environ.get("SEED_OWNER_FIRST_NAME", "Демо")
+OWNER_LAST_NAME = os.environ.get("SEED_OWNER_LAST_NAME", "Владелец")
+OWNER_CITY = os.environ.get("SEED_OWNER_CITY", "Санкт-Петербург")
+
+WALKER_EMAIL = os.environ.get("SEED_WALKER_EMAIL", "demo.walker@example.com")
+WALKER_PASSWORD = os.environ.get("SEED_WALKER_PASSWORD", "DemoWalker1")
+WALKER_FIRST_NAME = os.environ.get("SEED_WALKER_FIRST_NAME", "Демо")
+WALKER_LAST_NAME = os.environ.get("SEED_WALKER_LAST_NAME", "Выгульщик")
+WALKER_CITY = os.environ.get("SEED_WALKER_CITY", "Санкт-Петербург")
+WALKER_APPLY_MAX = int(os.environ.get("SEED_WALKER_APPLY_MAX", "8"))
 
 # Районы СПб: улица + координаты внутри bbox booking_service (geo.py)
 DISTRICTS = [
@@ -74,7 +101,14 @@ DOGS = [
 ]
 
 
-def _request(method: str, url: str, *, headers: dict | None = None, data: dict | None = None) -> tuple[int, dict | list]:
+def _request(
+    method: str,
+    url: str,
+    *,
+    headers: dict | None = None,
+    data: dict | None = None,
+    expect_codes: tuple[int, ...] | None = None,
+) -> tuple[int, dict | list]:
     body = None
     h = dict(headers or {})
     if data is not None:
@@ -94,15 +128,17 @@ def _request(method: str, url: str, *, headers: dict | None = None, data: dict |
             detail = json.loads(err_body)
         except json.JSONDecodeError:
             detail = {"raw": err_body}
+        if expect_codes and e.code in expect_codes:
+            return e.code, detail
         print(f"HTTP {e.code} {url}: {detail}", file=sys.stderr)
         raise SystemExit(1) from None
 
 
-def login() -> str:
+def _login(email: str, password: str) -> str:
     code, payload = _request(
         "POST",
-        f"{ACCOUNT_URL}/api/v1/auth/login",
-        data={"email": OWNER_EMAIL, "password": OWNER_PASSWORD},
+        f"{ACCOUNT_API}/auth/login",
+        data={"email": email, "password": password},
     )
     if code != 200:
         print(payload, file=sys.stderr)
@@ -110,10 +146,66 @@ def login() -> str:
     return str(payload["access_token"])
 
 
-def create_dog(token: str, spec: dict) -> str:
+def _ensure_owner_registered() -> None:
+    code, _payload = _request(
+        "POST",
+        f"{ACCOUNT_API}/auth/register",
+        data={
+            "email": OWNER_EMAIL,
+            "first_name": OWNER_FIRST_NAME,
+            "last_name": OWNER_LAST_NAME,
+            "city": OWNER_CITY,
+            "password": OWNER_PASSWORD,
+            "consent_personal_data": True,
+            "consent_privacy_policy": True,
+            "role_key": "owner",
+        },
+        expect_codes=(200, 201, 400, 409),
+    )
+    if code in (200, 201):
+        print(f"Создан владелец: {OWNER_EMAIL}")
+
+
+def _owner_token() -> str:
+    try:
+        return _login(OWNER_EMAIL, OWNER_PASSWORD)
+    except SystemExit:
+        _ensure_owner_registered()
+        return _login(OWNER_EMAIL, OWNER_PASSWORD)
+
+
+def _ensure_walker_registered() -> None:
+    code, _payload = _request(
+        "POST",
+        f"{ACCOUNT_API}/auth/register",
+        data={
+            "email": WALKER_EMAIL,
+            "first_name": WALKER_FIRST_NAME,
+            "last_name": WALKER_LAST_NAME,
+            "city": WALKER_CITY,
+            "password": WALKER_PASSWORD,
+            "consent_personal_data": True,
+            "consent_privacy_policy": True,
+            "role_key": "walker",
+        },
+        expect_codes=(200, 201, 400, 409),
+    )
+    if code in (200, 201):
+        print(f"Создан выгульщик: {WALKER_EMAIL}")
+
+
+def _walker_token() -> str:
+    try:
+        return _login(WALKER_EMAIL, WALKER_PASSWORD)
+    except SystemExit:
+        _ensure_walker_registered()
+        return _login(WALKER_EMAIL, WALKER_PASSWORD)
+
+
+def _create_dog(token: str, spec: dict) -> str:
     code, payload = _request(
         "POST",
-        f"{BOOKING_URL}/api/v1/dogs/",
+        f"{BOOKING_API}/dogs/",
         headers={"Authorization": f"Bearer {token}"},
         data={
             "name": spec["name"],
@@ -131,7 +223,7 @@ def create_dog(token: str, spec: dict) -> str:
     return str(payload["id"])
 
 
-def create_booking(
+def _create_booking(
     token: str,
     dog_id: str,
     district: dict,
@@ -140,7 +232,7 @@ def create_booking(
 ) -> str:
     code, payload = _request(
         "POST",
-        f"{BOOKING_URL}/api/v1/bookings/",
+        f"{BOOKING_API}/bookings/",
         headers={"Authorization": f"Bearer {token}"},
         data={
             "dog_id": dog_id,
@@ -161,27 +253,99 @@ def create_booking(
     return str(payload["id"])
 
 
-def main() -> None:
+def _ensure_walker_profile(token: str) -> None:
+    code, _p = _request(
+        "POST",
+        f"{BOOKING_API}/walkers/me",
+        headers={"Authorization": f"Bearer {token}"},
+        data={
+            "bio": "Демо-профиль для тестов приложения.",
+            "experience_years": 2,
+            "price_per_hour": "450.00",
+            "latitude": 59.9342,
+            "longitude": 30.3350,
+            "service_radius_km": 25.0,
+        },
+        expect_codes=(201, 409),
+    )
+    if code == 201:
+        print("Создан профиль выгульщика (walkers/me).")
+    elif code == 409:
+        print("Профиль выгульщика уже есть — пропуск создания.")
+
+
+def _list_open_bookings(token: str) -> list[dict]:
+    code, payload = _request(
+        "GET",
+        f"{BOOKING_API}/bookings/open",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    if code != 200:
+        print(payload, file=sys.stderr)
+        raise SystemExit(1)
+    assert isinstance(payload, list)
+    return payload
+
+
+def _apply_to_booking(walker_token: str, booking_id: str) -> bool:
+    code, payload = _request(
+        "POST",
+        f"{BOOKING_API}/bookings/{booking_id}/applications/",
+        headers={"Authorization": f"Bearer {walker_token}"},
+        expect_codes=(200, 201, 400, 409),
+    )
+    if code in (200, 201):
+        print(f"  Отклик на заявку {booking_id[:8]}…")
+        return True
+    detail = payload if isinstance(payload, dict) else {}
+    d = detail.get("detail")
+    print(f"  Пропуск {booking_id[:8]}… — {d}", file=sys.stderr)
+    return False
+
+
+def _seed_owner() -> None:
     now = datetime.now(timezone.utc)
-    token = login()
+    token = _owner_token()
     print("Владелец авторизован.")
 
     dog_ids: list[str] = []
     for spec in DOGS:
-        did = create_dog(token, spec)
+        did = _create_dog(token, spec)
         dog_ids.append(did)
         print(f"Собака «{spec['name']}»: id={did}")
 
-    # Первой собаке — районы 0..2, второй — 3..5; время в будущем, не пересекается
     slot = 0
     for i, dog_id in enumerate(dog_ids):
         for j in range(3):
             d = DISTRICTS[i * 3 + j]
             start = now + timedelta(days=1 + slot, hours=10 + j * 2)
             slot += 1
-            bid = create_booking(token, dog_id, d, start)
+            bid = _create_booking(token, dog_id, d, start)
             print(f"  Бронирование {bid[:8]}… — {d['label']} ({start.isoformat()})")
 
+
+def _seed_walker() -> None:
+    token = _walker_token()
+    print("Выгульщик авторизован.")
+    _ensure_walker_profile(token)
+    open_rows = _list_open_bookings(token)
+    if not open_rows:
+        print("Нет открытых заявок для откликов.")
+        return
+    print(f"Открытых заявок: {len(open_rows)}, откликаемся на до {WALKER_APPLY_MAX}.")
+    applied = 0
+    for row in open_rows:
+        if applied >= WALKER_APPLY_MAX:
+            break
+        bid = str(row["id"])
+        if _apply_to_booking(token, bid):
+            applied += 1
+
+
+def main() -> None:
+    print(f"API: account={ACCOUNT_API} booking={BOOKING_API}")
+    _seed_owner()
+    _seed_walker()
     print("Готово.")
 
 

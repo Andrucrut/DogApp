@@ -1,0 +1,81 @@
+Railway — DogApp (8 сервисов + Postgres)
+
+0) Репозиторий с DogApp на GitHub. В образе приложение слушает порт из переменной PORT (см. docker/entrypoint-service.sh).
+
+1) Проект
+   - Railway → New Project → пустой или из GitHub (потом добавишь сервисы).
+
+2) Postgres и 7 БД
+   Вариант A — один контейнер Postgres (как в docker-compose):
+   - New → Docker Image → postgres:16-alpine
+   - Variables: POSTGRES_USER=dogapp, POSTGRES_PASSWORD=(свой), POSTGRES_DB=account_db
+   - Нужен скрипт создания остальных БД: один раз подключись к Postgres и выполни SQL из docker/postgres/init-databases.sh (блок CREATE DATABASE), либо собери свой образ Postgres с COPY скрипта в /docker-entrypoint-initdb.d/
+   - Имя сервиса в проекте, например: postgres
+
+   Вариант B — managed PostgreSQL от Railway:
+   - New → Database → PostgreSQL
+   - Подключись (Railway CLI / клиент) и создай базы booking_db, tracking_db, media_db, payment_db, review_db, notification_db (права зависят от шаблона).
+
+   DATABASE_URL для каждого микросервиса:
+   postgresql+asyncpg://dogapp:ПАРОЛЬ@postgres.railway.internal:5432/ИМЯ_БД
+   (хост = имя твоего Postgres-сервиса в Railway + .railway.internal; порт обычно 5432.)
+
+3) Восемь приложений из одного репозитория
+   Для КАЖДОГО сервиса (account, booking, tracking, media, payment, review, notification, gateway):
+   - New → GitHub Repo → тот же репозиторий и ветка
+   - Settings → Root Directory: оставь ПУСТЫМ (корень репозитория = папка DogApp)
+   - Settings → Dockerfile Path: docker/Dockerfile.service
+   - Variables → добавь SERVICE_DIR (имя папки в репо):
+       account          → account_service
+       booking          → booking_service
+       tracking         → tracking_service
+       media            → media_service
+       payment          → payment_service
+       review           → review_service
+       notification     → notification_service
+       gateway          → gateway_service
+     Включи для SERVICE_DIR режим «доступна при сборке / Docker build» (как в текущем UI Railway).
+   - У всех восьми в Variables задай PORT=8000 (чтобы внутренние URL с :8000 совпадали с процессом).
+
+4) Общие секреты (одинаковые везде, где указано)
+   SECRET_KEY=одна-длинная-случайная-строка
+   INTERNAL_API_TOKEN=одна-строка-для-внутренних-вызовов
+
+5) Переменные по сервисам (кроме gateway)
+   account:       DATABASE_URL (account_db), SECRET_KEY, INTERNAL_API_TOKEN, ALGORITHM=HS256, ACCESS_TOKEN_EXPIRE_MINUTES=30, REFRESH_TOKEN_EXPIRE_DAYS=5
+   booking:       DATABASE_URL (booking_db), SECRET_KEY, INTERNAL_API_TOKEN, ALGORITHM=HS256,
+                  ACCOUNT_SERVICE_URL=http://account.railway.internal:8000
+                  NOTIFICATION_SERVICE_URL=http://notification.railway.internal:8000
+                  PAYMENT_SERVICE_URL=http://payment.railway.internal:8000
+                  GEOCODER_PROVIDER=nominatim, HTTP_TIMEOUT_SECONDS=5
+   tracking:      DATABASE_URL (tracking_db), SECRET_KEY, INTERNAL_API_TOKEN, ALGORITHM=HS256,
+                  BOOKING_SERVICE_URL=http://booking.railway.internal:8000, HTTP_TIMEOUT_SECONDS=10
+   media:         DATABASE_URL (media_db), SECRET_KEY, ALGORITHM=HS256, UPLOAD_DIR=/data/media_uploads, MAX_UPLOAD_BYTES=10485760
+                  + Volume на сервисе media, примонтировать в /data/media_uploads
+   payment:       DATABASE_URL (payment_db), SECRET_KEY, INTERNAL_API_TOKEN, ALGORITHM=HS256,
+                  BOOKING_SERVICE_URL=http://booking.railway.internal:8000, HTTP_TIMEOUT_SECONDS=10
+   review:        DATABASE_URL (review_db), SECRET_KEY, INTERNAL_API_TOKEN, ALGORITHM=HS256,
+                  BOOKING_SERVICE_URL=http://booking.railway.internal:8000, HTTP_TIMEOUT_SECONDS=10
+   notification:  DATABASE_URL (notification_db), SECRET_KEY, INTERNAL_API_TOKEN, ALGORITHM=HS256
+
+   Имена в URL (account, booking, …) должны совпадать с именами сервисов в проекте Railway.
+
+6) Gateway
+   Только переменные:
+   ACCOUNT_SERVICE_URL=http://account.railway.internal:8000
+   BOOKING_SERVICE_URL=http://booking.railway.internal:8000
+   TRACKING_SERVICE_URL=http://tracking.railway.internal:8000
+   MEDIA_SERVICE_URL=http://media.railway.internal:8000
+   PAYMENT_SERVICE_URL=http://payment.railway.internal:8000
+   REVIEW_SERVICE_URL=http://review.railway.internal:8000
+   NOTIFICATION_SERVICE_URL=http://notification.railway.internal:8000
+   PORT=8000
+
+   Networking → Public Domain только у gateway. Остальные сервисы без публичного домена.
+
+7) Импорт docker-compose.yml
+   Можно попробовать перетащить docker-compose.yml на canvas проекта — Railway создаст черновики сервисов.
+   Часто нужно вручную поправить Dockerfile path, build-args, private URL и Postgres. Git-связь после импорта проверь отдельно.
+
+8) После деплоя
+   В мобильном клиенте базовый URL API = публичный HTTPS-домен gateway.

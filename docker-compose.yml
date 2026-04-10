@@ -1,0 +1,169 @@
+# Одна команда: docker compose up -d --build
+# API снаружи: http://localhost:8080 (gateway). Остальные сервисы только внутри сети compose.
+# Секреты для прода задайте в .env рядом с этим файлом: SECRET_KEY, INTERNAL_API_TOKEN
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dogapp
+      POSTGRES_PASSWORD: dogapp
+      POSTGRES_DB: account_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init-databases.sh:/docker-entrypoint-initdb.d/01-init-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dogapp -d account_db"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  account:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE_DIR: account_service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dogapp:dogapp@postgres:5432/account_db
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-change-me-internal}
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+      REFRESH_TOKEN_EXPIRE_DAYS: "5"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  booking:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE_DIR: booking_service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dogapp:dogapp@postgres:5432/booking_db
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-change-me-internal}
+      ALGORITHM: HS256
+      ACCOUNT_SERVICE_URL: http://account:8000
+      NOTIFICATION_SERVICE_URL: http://notification:8000
+      PAYMENT_SERVICE_URL: http://payment:8000
+      GEOCODER_PROVIDER: nominatim
+      HTTP_TIMEOUT_SECONDS: "5"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  tracking:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE_DIR: tracking_service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dogapp:dogapp@postgres:5432/tracking_db
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-change-me-internal}
+      ALGORITHM: HS256
+      BOOKING_SERVICE_URL: http://booking:8000
+      HTTP_TIMEOUT_SECONDS: "10"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  media:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE_DIR: media_service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dogapp:dogapp@postgres:5432/media_db
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      ALGORITHM: HS256
+      UPLOAD_DIR: /data/media_uploads
+      MAX_UPLOAD_BYTES: "10485760"
+    volumes:
+      - media_uploads:/data/media_uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  payment:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE_DIR: payment_service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dogapp:dogapp@postgres:5432/payment_db
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-change-me-internal}
+      ALGORITHM: HS256
+      BOOKING_SERVICE_URL: http://booking:8000
+      HTTP_TIMEOUT_SECONDS: "10"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  review:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE_DIR: review_service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dogapp:dogapp@postgres:5432/review_db
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-change-me-internal}
+      ALGORITHM: HS256
+      BOOKING_SERVICE_URL: http://booking:8000
+      HTTP_TIMEOUT_SECONDS: "10"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  notification:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE_DIR: notification_service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dogapp:dogapp@postgres:5432/notification_db
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-change-me-internal}
+      ALGORITHM: HS256
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE_DIR: gateway_service
+    environment:
+      ACCOUNT_SERVICE_URL: http://account:8000
+      BOOKING_SERVICE_URL: http://booking:8000
+      TRACKING_SERVICE_URL: http://tracking:8000
+      MEDIA_SERVICE_URL: http://media:8000
+      PAYMENT_SERVICE_URL: http://payment:8000
+      REVIEW_SERVICE_URL: http://review:8000
+      NOTIFICATION_SERVICE_URL: http://notification:8000
+    ports:
+      - "8080:8000"
+    depends_on:
+      - account
+      - booking
+      - tracking
+      - media
+      - payment
+      - review
+      - notification
+
+volumes:
+  postgres_data:
+  media_uploads:
