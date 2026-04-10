@@ -12,17 +12,16 @@ ROOT_DIR = Path(__file__).resolve().parent
 
 
 def _ensure_asyncpg_database_url(url: str) -> str:
-    """postgres:// и postgresql:// без драйвера → SQLAlchemy тянет psycopg2; async-код ждёт asyncpg."""
+    """postgres:// и postgresql:// без асинхронного драйвера → SQLAlchemy тянет psycopg2; async-код ждёт asyncpg."""
     u = url.strip()
-    if not u:
+    if not u or "://" not in u:
         return u
-    scheme = u.split("://", 1)[0].lower()
-    if "asyncpg" in scheme:
+    scheme, rest = u.split("://", 1)
+    s = scheme.lower()
+    if "asyncpg" in s:
         return u
-    if u.startswith("postgres://"):
-        return "postgresql+asyncpg://" + u[len("postgres://") :]
-    if u.startswith("postgresql://"):
-        return "postgresql+asyncpg://" + u[len("postgresql://") :]
+    if s in {"postgres", "postgresql"}:
+        return f"postgresql+asyncpg://{rest}"
     return u
 
 
@@ -88,6 +87,9 @@ def _restore_env(previous_env: dict[str, str | None]) -> None:
 def _service_env() -> dict[str, str]:
     base_url = os.getenv("MONOLITH_BASE_URL", "http://127.0.0.1:9000").rstrip("/")
     database_url = os.getenv("MONOLITH_DATABASE_URL", "").strip()
+    if not database_url:
+        # Render часто подставляет только DATABASE_URL от linked PostgreSQL, без MONOLITH_*.
+        database_url = os.getenv("DATABASE_URL", "").strip()
     secret_key = os.getenv(
         "MONOLITH_SECRET_KEY",
         os.getenv("SECRET_KEY", "change-me-monolith-secret"),
