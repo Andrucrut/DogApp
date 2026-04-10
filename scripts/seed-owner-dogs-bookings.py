@@ -9,7 +9,8 @@
    walker, профиль POST /walkers/me, отклики на первые N открытых заявок.
 
 Режим монолита (по умолчанию):
-  MONOLITH_URL=http://127.0.0.1:9000  — один хост, пути /account/api/v1 и /booking/api/v1.
+  MONOLITH_BASE_URL или MONOLITH_URL (приоритет у MONOLITH_URL), например
+  https://dogapp-02y1.onrender.com — один хост, пути /account/api/v1 и /booking/api/v1.
 
 Режим микросервисов (если заданы оба URL):
   ACCOUNT_URL=http://127.0.0.1:8000
@@ -30,7 +31,11 @@ def _api_bases() -> tuple[str, str]:
     legacy_b = os.environ.get("BOOKING_URL", "").strip().rstrip("/")
     if legacy_a and legacy_b:
         return f"{legacy_a}/api/v1", f"{legacy_b}/api/v1"
-    mono = os.environ.get("MONOLITH_URL", "http://127.0.0.1:9000").strip().rstrip("/")
+    mono = (
+        os.environ.get("MONOLITH_URL", "").strip().rstrip("/")
+        or os.environ.get("MONOLITH_BASE_URL", "").strip().rstrip("/")
+        or "http://127.0.0.1:9000"
+    )
     return f"{mono}/account/api/v1", f"{mono}/booking/api/v1"
 
 

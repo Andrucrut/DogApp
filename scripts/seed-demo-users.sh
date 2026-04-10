@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Создаёт двух демо-пользователей через account_service (POST /api/v1/auth/register).
-# Перед запуском: поднят account на порту 8000 (или задайте ACCOUNT_URL).
+# Монолит: задайте MONOLITH_BASE_URL или MONOLITH_URL (например https://….onrender.com).
+# Микросервис: поднят account на порту 8000 или задайте ACCOUNT_URL.
 #
 # Учётные данные (после успешного запуска):
 #   Владелец:  demo.owner@example.com  / DemoOwner1
@@ -9,7 +10,13 @@
 # Повторный запуск вернёт 409 Conflict, если пользователи уже есть.
 
 set -euo pipefail
-ACCOUNT_URL="${ACCOUNT_URL:-http://127.0.0.1:8000}"
+MONO="${MONOLITH_URL:-${MONOLITH_BASE_URL:-}}"
+MONO="${MONO%/}"
+if [[ -n "$MONO" && -z "${ACCOUNT_URL:-}" ]]; then
+  ACCOUNT_URL="${MONO}/account"
+elif [[ -z "${ACCOUNT_URL:-}" ]]; then
+  ACCOUNT_URL="http://127.0.0.1:8000"
+fi
 
 register() {
   local body="$1"

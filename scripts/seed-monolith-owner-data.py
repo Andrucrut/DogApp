@@ -9,7 +9,16 @@ import urllib.request
 from datetime import date, datetime, timedelta, timezone
 
 
-BASE_URL = os.environ.get("MONOLITH_URL", "http://127.0.0.1:9000").rstrip("/")
+def _monolith_public_base() -> str:
+    """Тот же хост, что в monolith.env: MONOLITH_BASE_URL; для переопределения — MONOLITH_URL."""
+    for key in ("MONOLITH_URL", "MONOLITH_BASE_URL"):
+        v = os.environ.get(key, "").strip().rstrip("/")
+        if v:
+            return v
+    return "http://127.0.0.1:9000"
+
+
+BASE_URL = _monolith_public_base()
 ACCOUNT_URL = f"{BASE_URL}/account/api/v1"
 BOOKING_URL = f"{BASE_URL}/booking/api/v1"
 
