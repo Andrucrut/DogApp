@@ -6,7 +6,7 @@ import os
 
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from monolith_loader import load_service_models
+from monolith_loader import _ensure_asyncpg_database_url, load_service_models
 
 
 SERVICE_NAMES = [
@@ -21,9 +21,14 @@ SERVICE_NAMES = [
 
 
 async def main() -> None:
-    database_url = os.getenv("MONOLITH_DATABASE_URL", "").strip()
+    database_url = os.getenv("MONOLITH_DATABASE_URL", "").strip() or os.getenv(
+        "DATABASE_URL", ""
+    ).strip()
     if not database_url:
-        raise RuntimeError("Set MONOLITH_DATABASE_URL before running init-monolith-db.py")
+        raise RuntimeError(
+            "Set MONOLITH_DATABASE_URL or DATABASE_URL before running init-monolith-db.py"
+        )
+    database_url = _ensure_asyncpg_database_url(database_url)
 
     engine = create_async_engine(database_url)
     try:

@@ -6,9 +6,29 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 
 ROOT_DIR = Path(__file__).resolve().parent
+
+
+def _asyncpg_url_without_sslmode(url: str) -> str:
+    """
+    Render/DigitalOcean и др. кладут в DATABASE_URL ?sslmode=require.
+    SQLAlchemy передаёт query в asyncpg.connect(), а asyncpg не принимает sslmode → 500 на первом запросе к БД.
+    Убираем sslmode и при необходимости задаём ssl=true (достаточно для облачного Postgres с TLS).
+    """
+    parsed = urlparse(url)
+    if "asyncpg" not in parsed.scheme.lower():
+        return url
+    q = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    sslmode = (q.pop("sslmode", None) or "").strip().lower()
+    if sslmode in ("require", "verify-full", "verify-ca", "prefer", "allow"):
+        q.setdefault("ssl", "true")
+    new_query = urlencode(list(q.items()))
+    return urlunparse(
+        (parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment)
+    )
 
 
 def _ensure_asyncpg_database_url(url: str) -> str:
@@ -19,9 +39,9 @@ def _ensure_asyncpg_database_url(url: str) -> str:
     scheme, rest = u.split("://", 1)
     s = scheme.lower()
     if "asyncpg" in s:
-        return u
+        return _asyncpg_url_without_sslmode(u)
     if s in {"postgres", "postgresql"}:
-        return f"postgresql+asyncpg://{rest}"
+        return _asyncpg_url_without_sslmode(f"postgresql+asyncpg://{rest}")
     return u
 
 
