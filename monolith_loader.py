@@ -22,9 +22,13 @@ def _asyncpg_url_without_sslmode(url: str) -> str:
     if "asyncpg" not in parsed.scheme.lower():
         return url
     q = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    if str(q.get("ssl", "")).lower() in ("true", "1", "yes"):
+        q["ssl"] = "require"
     sslmode = (q.pop("sslmode", None) or "").strip().lower()
+    # Не «ssl=true» в строке: SQLAlchemy передаст asyncpg ssl='true', что даёт ClientConfigurationError.
+    # Допустимые значения см. asyncpg; для облака достаточно require.
     if sslmode in ("require", "verify-full", "verify-ca", "prefer", "allow"):
-        q.setdefault("ssl", "true")
+        q.setdefault("ssl", "require")
     new_query = urlencode(list(q.items()))
     return urlunparse(
         (parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment)
