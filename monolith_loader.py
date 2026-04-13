@@ -16,7 +16,7 @@ def _asyncpg_url_without_sslmode(url: str) -> str:
     """
     Render/DigitalOcean и др. кладут в DATABASE_URL ?sslmode=require.
     SQLAlchemy передаёт query в asyncpg.connect(), а asyncpg не принимает sslmode → 500 на первом запросе к БД.
-    Убираем sslmode и при необходимости задаём ssl=true (достаточно для облачного Postgres с TLS).
+    Убираем sslmode и при необходимости задаём ssl=require (облачный Postgres с TLS).
     """
     parsed = urlparse(url)
     if "asyncpg" not in parsed.scheme.lower():

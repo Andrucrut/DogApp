@@ -20,7 +20,6 @@ class Base(DeclarativeBase):
     deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     extra_fields: Mapped[dict | None] = mapped_column(JSONB)
 
-    @classmethod
     @declared_attr.directive
     def __tablename__(cls) -> str:
         symbols = [s if s.islower() else ("_" + s).lower() for s in cls.__name__]
