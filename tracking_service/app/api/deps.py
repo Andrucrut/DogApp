@@ -27,4 +27,10 @@ async def get_current_user_id(payload: dict = Depends(get_token_payload)) -> UUI
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="token_invalid",
         )
-    return UUID(sub)
+    try:
+        return UUID(str(sub))
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="token_invalid",
+        ) from None

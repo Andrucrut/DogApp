@@ -2,6 +2,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db_crud.base import CRUDBase
@@ -24,9 +25,17 @@ class CRUDWallet(CRUDBase[Wallet]):
             return w
         w = Wallet(user_id=user_id, balance=Decimal("0.00"))
         db.add(w)
-        await db.flush()
-        await db.refresh(w)
-        return w
+        try:
+            await db.flush()
+            await db.refresh(w)
+            return w
+        except IntegrityError:
+            # Параллельный запрос уже успел создать кошелёк.
+            await db.rollback()
+            existing = await self.get_by_user_id(db, user_id)
+            if existing:
+                return existing
+            raise
 
 
 class CRUDWithdrawal(CRUDBase[WithdrawalRequest]):

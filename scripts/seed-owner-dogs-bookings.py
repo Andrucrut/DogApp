@@ -2,8 +2,13 @@
 """
 Демо-данные для владельца и выгульщика.
 
-1) Владелец (по умолчанию demo.owner@example.com): две собаки и по 3 открытых
-   бронирования на каждую — в разных районах Санкт-Петербурга.
+1) Владелец (по умолчанию demo.owner@example.com): собаки из списка DOGS (по умолчанию две)
+   и открытые бронирования в Санкт-Петербурге.
+
+   Переменные (опционально):
+   SEED_DOG_LIMIT=1 — не больше N собак из DOGS (по умолчанию все).
+   SEED_OWNER_BOOKING_COUNT=10 — ровно столько заявок (районы по кругу);
+   если не задано — по 3 заявки на каждую созданную собаку, как раньше.
 
 2) Выгульщик (по умолчанию demo.walker@example.com): регистрация с role_key
    walker, профиль POST /walkers/me, отклики на первые N открытых заявок.
@@ -53,6 +58,12 @@ WALKER_FIRST_NAME = os.environ.get("SEED_WALKER_FIRST_NAME", "Демо")
 WALKER_LAST_NAME = os.environ.get("SEED_WALKER_LAST_NAME", "Выгульщик")
 WALKER_CITY = os.environ.get("SEED_WALKER_CITY", "Санкт-Петербург")
 WALKER_APPLY_MAX = int(os.environ.get("SEED_WALKER_APPLY_MAX", "8"))
+
+_dog_limit_raw = os.environ.get("SEED_DOG_LIMIT", "").strip()
+DOG_LIMIT = int(_dog_limit_raw) if _dog_limit_raw else len(DOGS)
+
+_booking_count_raw = os.environ.get("SEED_OWNER_BOOKING_COUNT", "").strip()
+OWNER_BOOKING_COUNT: int | None = int(_booking_count_raw) if _booking_count_raw else None
 
 # Районы СПб: улица + координаты внутри bbox booking_service (geo.py)
 DISTRICTS = [
@@ -313,20 +324,31 @@ def _seed_owner() -> None:
     token = _owner_token()
     print("Владелец авторизован.")
 
+    limit = max(1, min(DOG_LIMIT, len(DOGS)))
+    dog_specs = DOGS[:limit]
     dog_ids: list[str] = []
-    for spec in DOGS:
+    for spec in dog_specs:
         did = _create_dog(token, spec)
         dog_ids.append(did)
         print(f"Собака «{spec['name']}»: id={did}")
 
-    slot = 0
-    for i, dog_id in enumerate(dog_ids):
-        for j in range(3):
-            d = DISTRICTS[i * 3 + j]
-            start = now + timedelta(days=1 + slot, hours=10 + j * 2)
-            slot += 1
+    if OWNER_BOOKING_COUNT is not None:
+        n = max(1, OWNER_BOOKING_COUNT)
+        for slot in range(n):
+            dog_id = dog_ids[slot % len(dog_ids)]
+            d = DISTRICTS[slot % len(DISTRICTS)]
+            start = now + timedelta(days=1 + slot, hours=10 + (slot % 5) * 2)
             bid = _create_booking(token, dog_id, d, start)
             print(f"  Бронирование {bid[:8]}… — {d['label']} ({start.isoformat()})")
+    else:
+        slot = 0
+        for i, dog_id in enumerate(dog_ids):
+            for j in range(3):
+                d = DISTRICTS[i * 3 + j]
+                start = now + timedelta(days=1 + slot, hours=10 + j * 2)
+                slot += 1
+                bid = _create_booking(token, dog_id, d, start)
+                print(f"  Бронирование {bid[:8]}… — {d['label']} ({start.isoformat()})")
 
 
 def _seed_walker() -> None:

@@ -10,6 +10,7 @@
   PYTHONPATH=. python scripts/seed-via-api.py
 
 По умолчанию: владелец + выгульщик + заявки + отклики (scripts/seed-owner-dogs-bookings.py).
+  Для «1 собака, 10 заявок в СПб»: SEED_DOG_LIMIT=1 SEED_OWNER_BOOKING_COUNT=10 SEED_WALKER_APPLY_MAX=10
 """
 from __future__ import annotations
 

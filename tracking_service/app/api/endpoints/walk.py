@@ -3,6 +3,7 @@ from math import asin, cos, radians, sin, sqrt
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id
@@ -77,18 +78,38 @@ async def start_walk_session(
     if existing:
         return WalkSessionRead.model_validate(existing)
 
+    tomb = await crud_walk_session.get_by_booking_id_any(db, body.booking_id)
+    if tomb:
+        if tomb.deleted_at is not None:
+            await crud_walk_session.hard_delete_with_points(db, tomb)
+        elif tomb.status != WalkSessionStatus.LIVE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="walk_session_finished",
+            )
+        else:
+            # Гонка: другой запрос уже создал LIVE-сессию между get_live и этим чтением.
+            return WalkSessionRead.model_validate(tomb)
+
     now = datetime.now(timezone.utc)
-    session = await crud_walk_session.create(
-        db,
-        {
-            "booking_id": body.booking_id,
-            "owner_id": info.owner_id,
-            "walker_user_id": info.walker_user_id,
-            "status": WalkSessionStatus.LIVE,
-            "started_at": now,
-            "ended_at": None,
-        },
-    )
+    try:
+        session = await crud_walk_session.create(
+            db,
+            {
+                "booking_id": body.booking_id,
+                "owner_id": info.owner_id,
+                "walker_user_id": info.walker_user_id,
+                "status": WalkSessionStatus.LIVE,
+                "started_at": now,
+                "ended_at": None,
+            },
+        )
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="walk_session_conflict",
+        ) from None
     await walk_hub.publish_point(
         session.id,
         {"type": "session_started", "session_id": str(session.id), "at": now.isoformat()},

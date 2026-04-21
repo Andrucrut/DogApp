@@ -108,8 +108,20 @@ def _restore_env(previous_env: dict[str, str | None]) -> None:
             os.environ[key] = previous_value
 
 
+def _default_monolith_base_url() -> str:
+    """
+    URL для внутренних HTTP-вызовов между сервисами в одном процессе (monolith).
+    На Render задаётся PORT (например 10000), а не 9000 — иначе tracking → booking даёт ConnectError.
+    Явно задайте MONOLITH_BASE_URL (публичный https), если нужен другой хост.
+    """
+    port = os.getenv("PORT", "").strip()
+    if port:
+        return f"http://127.0.0.1:{port}"
+    return "http://127.0.0.1:9000"
+
+
 def _service_env() -> dict[str, str]:
-    base_url = os.getenv("MONOLITH_BASE_URL", "http://127.0.0.1:9000").rstrip("/")
+    base_url = os.getenv("MONOLITH_BASE_URL", _default_monolith_base_url()).rstrip("/")
     database_url = os.getenv("MONOLITH_DATABASE_URL", "").strip()
     if not database_url:
         # Render часто подставляет только DATABASE_URL от linked PostgreSQL, без MONOLITH_*.

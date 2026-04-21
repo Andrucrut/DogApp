@@ -24,6 +24,7 @@ htmlcov/
 # Секреты (шаблоны env.sample в сервисах коммитятся)
 .env
 **/.env
+render.secrets.env
 
 # ОС и редакторы
 .DS_Store
