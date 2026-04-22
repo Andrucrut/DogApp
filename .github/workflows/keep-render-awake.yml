@@ -1,0 +1,38 @@
+name: Keep Render Awake
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RENDER_BASE_URL: ${{ vars.RENDER_BASE_URL || 'https://dogapp-02y1.onrender.com' }}
+    steps:
+      - name: Wake Render instance
+        run: |
+          set -euo pipefail
+          curl -sS --max-time 20 "${RENDER_BASE_URL}/health" >/dev/null || true
+
+      - name: Ensure health is reachable
+        run: |
+          set -euo pipefail
+          for i in {1..5}; do
+            if curl -fsS --max-time 20 "${RENDER_BASE_URL}/health" >/dev/null; then
+              exit 0
+            fi
+            sleep 8
+          done
+          echo "Render health endpoint is still unavailable"
+          exit 1
+
+      - name: Warm monolith routes
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 20 "${RENDER_BASE_URL}/hello/moderation-warmup" >/dev/null
